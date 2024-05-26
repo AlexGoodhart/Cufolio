@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive 3D Environment</title>
+    <style>
+        body { margin: 0; overflow: hidden; }
+        canvas { display: block; }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tween.js/16.7.0/Tween.min.js"></script>
+</head>
+<body>
+<script>
+    let scene, camera, renderer, keys = {};
+    let glowingTiles = [];
+    let stars = [];
+    let starInitialPositions = [];
+    let pointLight, warmAmbientLight, redLight;
+    let cube, floatingSphere;
+
+    let lightOffsetX = 0;
+    let lightOffsetY = 0;
+    let lightOffsetZ = 0;
+
+    const initialAmplitude = 100;
+    const duration = 180; // 180 seconds
+
+    let isWarmAmbientLightOn = false;
+    let isAnimatingCube = false;
+
+    init();
+    animate();
+
+    function init() {
+        scene = new THREE.Scene();
+
+        camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(0, 12, -300);
+        camera.lookAt(0, 12, 0);
+
+        renderer = new THREE.WebGLRenderer();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        let gridSize = 500;
+        let gridDivisions = 100;
+        let gridHelper = new THREE.GridHelper(gridSize, gridDivisions, 0x555555, 0x555555);
+        gridHelper.material.opacity = 0.5;
+        gridHelper.material.transparent = true;
+        gridHelper.position.y = 0;
+        scene.add(gridHelper);
+
+        warmAmbientLight = new THREE.AmbientLight(0xf0ead6); // Warm, mostly white color
+        scene.add(warmAmbientLight);
+        warmAmbientLight.visible = false; // Start with the warm ambient light off
+
+        pointLight = new THREE.PointLight(0xffffff, 1, 90);
+        pointLight.castShadow = true;
+        pointLight.position.set(0, 10, 30);
+        scene.add(pointLight);
+
+        addStars();
+        addGlowingTiles();
+        addFloatingCube();
+        addFloatingSphere();
+        addCircularPlatform(); // Add the circular platform
+
+        document.addEventListener('keydown', onDocumentKeyDown, false);
+        document.addEventListener('keyup', onDocumentKeyUp, false);
+        renderer.domElement.addEventListener('click', onRendererClick, false);
+
+        scene.add(camera);
+    }
+
+    function onDocumentKeyDown(event) {
+        keys[event.keyCode] = true;
+    }
+
+    function onDocumentKeyUp(event) {
+        keys[event.keyCode] = false;
+    }
+
+    function onRendererClick(event) {
+        let mouse = new THREE.Vector2();
+        mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+        mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+        let raycaster = new THREE.Raycaster();
+        raycaster.setFromCamera(mouse, camera);
+
+        let intersects = raycaster.intersectObjects([cube]);
+        if (intersects.length > 0) {
+            // Initiate the cube animation
+            animateCubeContraction();
+
+            // Introduce a delay before toggling the ambient light state
+            setTimeout(() => {
+                // Toggle the ambient light state
+                isWarmAmbientLightOn = !isWarmAmbientLightOn;
+                warmAmbientLight.visible = isWarmAmbientLightOn;
+            }, 150); // Halfway through the cube animation
+        }
+    }
+
+    function animateCubeContraction() {
+        isAnimatingCube = true; // Set flag to indicate cube animation is in progress
+
+        // Contract the cube
+        new TWEEN.Tween(cube.scale)
+            .to({ x: 0.5, y: 0.5, z: 0.5 }, 300)
+            .easing(TWEEN.Easing.Quadratic.InOut)
+            .onComplete(() => {
+                // Expand the cube after contraction
+                new TWEEN.Tween(cube.scale)
+                    .to({ x: 1, y: 1, z: 1 }, 300)
+                    .easing(TWEEN.Easing.Quadratic.InOut)
+                    .onComplete(() => {
+                        isAnimatingCube = false; // Reset flag when cube animation completes
+                    })
+                    .start();
+            })
+            .start();
+    }
+
+function updateCameraPosition() {
+    let moveSpeed = 2; // Initialize movement speed
+    let maxSpeed = 10.0; // Maximum movement speed
+    let rotateSpeed = 0.02; // Base rotation speed
+    let acceleration = 1.02; // Acceleration factor
+    let damping = 0.9; // Damping factor for smooth stopping
+
+    // Check if rotation key 'A' is held down
+    if (keys[65]) {
+        // Rotate camera based on arrow key inputs
+        camera.rotation.x += (keys[40] ? rotateSpeed : 0) - (keys[38] ? rotateSpeed : 0);
+        camera.rotation.y += (keys[37] ? rotateSpeed : 0) - (keys[39] ? rotateSpeed : 0);
+    }
+
+    // Check if rotation key 'S' is held down
+    if (keys[83]) {
+        // Rotate camera in the opposite direction based on arrow key inputs
+        camera.rotation.x -= (keys[40] ? rotateSpeed : 0) - (keys[38] ? rotateSpeed : 0);
+        camera.rotation.y -= (keys[37] ? rotateSpeed : 0) - (keys[39] ? rotateSpeed : 0);
+    }
+
+    // Check if rotation key 'D' is held down
+    if (keys[68]) {
+        // Rotate camera without affecting position
+        camera.rotation.x -= (keys[40] ? rotateSpeed : 0) - (keys[38] ? rotateSpeed : 0);
+        camera.rotation.y -= (keys[37] ? rotateSpeed : 0) - (keys[39] ? rotateSpeed : 0);
+    } else {
+        let moveDirection = new THREE.Vector3();
+
+        // Determine movement direction based on arrow key inputs
+        if (keys[38]) moveDirection.add(camera.getWorldDirection(new THREE.Vector3(0, 1, 0)));
+        if (keys[40]) moveDirection.add(camera.getWorldDirection(new THREE.Vector3(0, 1, 0)).negate());
+        if (keys[37]) moveDirection.add(camera.getWorldDirection(new THREE.Vector3(0, 1, 0)).cross(camera.up).normalize().negate());
+        if (keys[39]) moveDirection.add(camera.getWorldDirection(new THREE.Vector3(0, 1, 0)).cross(camera.up).normalize());
+
+        // Apply acceleration to movement speed
+        moveSpeed += acceleration;
+
+        // Cap the movement speed to the maximum velocity
+        moveSpeed = Math.min(moveSpeed, maxSpeed);
+
+        // Apply movement based on direction and speed
+        camera.position.add(moveDirection.multiplyScalar(moveSpeed));
+
+        // Dampen movement speed for smoother stopping
+        moveSpeed *= damping;
+    }
+}
+
+    function addStars() {
+        let numStars = 1700;
+        for (let i = 0; i < numStars; i++) {
+            let starGeometry = new THREE.SphereGeometry(0.07, 24, 24);
+            let starMaterial = new THREE.MeshBasicMaterial({ color: 0xffd466 });
+            let star = new THREE.Mesh(starGeometry, starMaterial);
+            let x = (Math.random() - 0.5) * 400;
+            let y = (Math.random() - 0.1) * 60;
+            let z = (Math.random() - 0.5) * 400;
+            star.position.set(x, y, z);
+            starInitialPositions.push({ x: x, y: y, z: z });
+            scene.add(star);
+            stars.push(star);
+        }
+    }
+
+    function addGlowingTiles() {
+        let gridSize = 500;
+        let tileSize = 5;
+        let numTiles = Math.pow(gridSize / tileSize, 2);
+
+        for (let i = 0; i < numTiles; i++) {
+            let x = (i % (gridSize / tileSize)) * tileSize - gridSize / 2;
+            let z = Math.floor(i / (gridSize / tileSize)) * tileSize - gridSize / 2;
+            let y = Math.random() * 5;
+
+            let geometry = new THREE.BoxGeometry(tileSize, 0.1 + y, tileSize);
+            let material = new THREE.MeshStandardMaterial({
+                color: new THREE.Color(Math.random(), Math.random(), Math.random()),
+                roughness: 0.7,
+                metalness: 0.0,
+                transparent: true,
+                opacity: Math.random() * (0.8 - 0.5) + 0.5
+            });
+
+            let tile = new THREE.Mesh(geometry, material);
+            tile.position.set(x, 0, z);
+            tile.receiveShadow = true;
+            scene.add(tile);
+            glowingTiles.push(tile);
+        }
+    }
+
+    function addFloatingCube() {
+        let textureLoader = new THREE.TextureLoader();
+        let cubeTexture = textureLoader.load('https://static.wixstatic.com/media/58c99c_1b607daf23384edaa49a1303ce8e2fc1~mv2.png');
+
+        let size = 20;
+        let x = 0;
+        let y = 25;
+        let z = 0;
+
+        let geometry = new THREE.BoxGeometry(size, size, size);
+        let material = new THREE.MeshStandardMaterial({
+            map: cubeTexture,
+            transparent: true,
+            opacity: 0.6
+        });
+
+        cube = new THREE.Mesh(geometry, material);
+        cube.position.set(x, y, z);
+        cube.castShadow = true;
+        scene.add(cube);
+    }
+
+    function addFloatingSphere() {
+        let geometry = new THREE.SphereGeometry(9, 32, 32);
+        let material = new THREE.MeshStandardMaterial({ color: 0xff0000, transparent: true, opacity: 0.6 });
+        floatingSphere = new THREE.Mesh(geometry, material);
+        floatingSphere.position.set(0, 50, 0);
+        scene.add(floatingSphere);
+
+        redLight = new THREE.PointLight(0xff0000, 2, 100);
+        floatingSphere.add(redLight);
+    }
+
+    function addCircularPlatform() {
+        let platformRadius = 250; // Half the size of the main hub
+        let platformGeometry = new THREE.CircleGeometry(platformRadius, 64);
+        let platformMaterial = new THREE.MeshBasicMaterial({ color: 0x7ab4e8, wireframe: true, transparent: true, opacity: 0.5 });
+
+        let platform = new THREE.Mesh(platformGeometry, platformMaterial);
+        platform.rotation.x = -Math.PI / 2;
+        platform.position.set(-190, 0, 1350); // positioned off center farther out from the hub
+        platform.receiveShadow = true;
+        scene.add(platform);
+
+        // Add glowing tiles to the platform
+        addPlatformGlowingTiles(platformRadius, platform.position);
+    }
+
+    function addPlatformGlowingTiles(radius, centerPosition) {
+        let numTiles = 8500;
+        for (let i = 0; i < numTiles; i++) {
+            let angle = (i / numTiles) * 2 * Math.PI;
+            let x = centerPosition.x + radius * Math.cos(angle);
+            let z = centerPosition.z + radius * Math.sin(angle);
+            let y = Math.random() * 800; // Varied vertical positions
+
+            let size = Math.random() * 2.8; // Varied sizes
+            let geometry = new THREE.BoxGeometry(size, size, size);
+            let color = (i % 4 === 0) ? 0x060669 : (i % 4 === 1) ? 0x2f4f4f : (i % 4 === 2) ? 0x6a106a : 0x134f5c; //
+            let material = new THREE.MeshStandardMaterial({
+                color: color,
+                roughness: 0.01,
+                metalness: .1,
+                transparent: false
+            });
+
+            let tile = new THREE.Mesh(geometry, material);
+            tile.position.set(x, y, z);
+            tile.rotation.x = Math.random() * Math.PI; // Random rotation
+            tile.rotation.y = Math.random() * Math.PI;
+            tile.rotation.z = Math.random() * Math.PI;
+            tile.receiveShadow = true;
+            scene.add(tile);
+            glowingTiles.push(tile);
+        }
+    }
+
+    function animate() {
+        requestAnimationFrame(animate);
+        updateCameraPosition();
+
+        let elapsedTime = performance.now() / 1000;
+        stars.forEach((star, index) => {
+            let initialPosition = starInitialPositions[index];
+            star.position.y = initialPosition.y + Math.sin(elapsedTime * 0.5 + index) * 0.5;
+            star.position.x = initialPosition.x + Math.sin(elapsedTime * 0.2 + index) * 0.1;
+        });
+
+        glowingTiles.forEach(tile => {
+            let distance = tile.position.distanceTo(cube.position);
+            let opacity = 0.5 + 0.3 * Math.sin(elapsedTime + distance);
+            tile.material.opacity = opacity;
+        });
+
+        pointLight.position.set(
+            camera.position.x + lightOffsetX,
+            camera.position.y + lightOffsetY,
+            camera.position.z + lightOffsetZ
+        );
+
+        // Calculate the amplitude based on the elapsed time
+        let amplitude = initialAmplitude * (1 - Math.min(elapsedTime / duration, 1));
+        floatingSphere.position.x = Math.sin(elapsedTime) * amplitude;
+        floatingSphere.position.y = 50 + Math.cos(elapsedTime) * amplitude / 2;
+        floatingSphere.position.z = Math.cos(elapsedTime) * amplitude;
+
+        // Rotate the cube around its centered Y axis when the camera is within 20 units
+        let distanceToCamera = cube.position.distanceTo(camera.position);
+        if (distanceToCamera < 100) {
+            cube.rotation.y += 0.01;
+            cube.rotation.x += 0.005;
+        }
+
+        TWEEN.update();
+        renderer.render(scene, camera);
+    }
+</script>
+</body>
+</html>
